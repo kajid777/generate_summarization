@@ -1,7 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
+import { StringOutputParser, JsonOutputParser } from "@langchain/core/output_parsers";
 import dotenv from 'dotenv';
 
 // 環境変数を読み込み
@@ -84,13 +84,11 @@ async function extractSalesInfo(transcriptText) {
 
     const salesPrompt = `
     以下の商談の文字起こしテキストから、情報を抽出してください。
-    出力例のJSONフォーマットに厳密に従い、各項目の値には指示された内容を記述してください。
+    出力は以下のJSONフォーマットに厳密に従い、各項目の値には指示された内容を記述してください。
     テキスト中に該当する情報が存在しない場合は、推測せずにその項目に null を設定してください。
     顧客が明確に発言していない内容を推測して記述することは絶対に避けてください。
     
-    **重要：以下のJSON形式のみで出力してください。マークダウンやコメントは一切含めないでください。**
-    
-    出力例：
+    必須出力形式：
     {{
       "関係構築とヒアリング": {{
         "会議の参加者": "[会議に参加している人物の氏名、会社名、役職を特定し、配列で記述]",
@@ -126,19 +124,16 @@ async function extractSalesInfo(transcriptText) {
     {transcript}
     `;
 
-    const prompt = PromptTemplate.fromTemplate(salesPrompt);
-    const chain = prompt.pipe(model).pipe(new StringOutputParser());
+    const parser = new JsonOutputParser();
+    const prompt = PromptTemplate.fromTemplate(salesPrompt + "\n\n{format_instructions}");
+    const chain = prompt.pipe(model).pipe(parser);
 
-    const result = await chain.invoke({ transcript: transcriptText });
+    const result = await chain.invoke({ 
+        transcript: transcriptText,
+        format_instructions: parser.getFormatInstructions()
+    });
     
-    try {
-        // マークダウンのコードブロックを除去
-        const cleanedResult = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(cleanedResult);
-    } catch (error) {
-        console.error("JSON解析エラー:", error);
-        return { error: "JSON解析に失敗しました", raw_response: result };
-    }
+    return result;
 }
 
 /**
@@ -155,14 +150,7 @@ async function extractGeneralMeetingInfo(transcriptText) {
 以下のミーティングの文字起こしテキストから、指定された情報を抽出してください。
 情報が明記されていない場合は、該当する項目に null を設定してください。
 
-抽出する情報：
-- 会議の論点
-- 結論
-- 次やるTodo
-
-**重要：JSON形式のみで出力してください。マークダウンやコメントは一切含めないでください。**
-
-出力例：
+必須出力形式：
 {{
   "会議の論点": ["会議の論点をすべて抽出"],
   "結論": "論点をもとに話し合った結論を記述、結論に至らなかったらその旨も記す",
@@ -173,19 +161,16 @@ async function extractGeneralMeetingInfo(transcriptText) {
 {transcript}
 `;
 
-    const prompt = PromptTemplate.fromTemplate(generalPrompt);
-    const chain = prompt.pipe(model).pipe(new StringOutputParser());
+    const parser = new JsonOutputParser();
+    const prompt = PromptTemplate.fromTemplate(generalPrompt + "\n\n{format_instructions}");
+    const chain = prompt.pipe(model).pipe(parser);
 
-    const result = await chain.invoke({ transcript: transcriptText });
+    const result = await chain.invoke({ 
+        transcript: transcriptText,
+        format_instructions: parser.getFormatInstructions()
+    });
     
-    try {
-        // マークダウンのコードブロックを除去
-        const cleanedResult = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(cleanedResult);
-    } catch (error) {
-        console.error("JSON解析エラー:", error);
-        return { error: "JSON解析に失敗しました", raw_response: result };
-    }
+    return result;
 }
 
 /**
